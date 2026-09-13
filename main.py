@@ -1,13 +1,14 @@
 import os
-from fastapi import FastAPI, HTTPException
+from threading import Thread
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from huggingface_hub import InferenceClient
 from pydantic import BaseModel
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 app = FastAPI()
 
-# Permite acesso do seu app (Flutter, Web, Mobile, Desktop)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,12 +17,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Carrega token e ID do seu modelo privado
+# Repositório correto identificado na sua imagem
+model_id = "MidNurdos/Monsei-Atchk"
 token = os.environ.get("HF_TOKEN")
-model_id = "MidNurdos/Monsei-Atchk"  # Subtitua pelo seu repositório no HF
 
-# Cliente oficial de inferência em nuvem do Hugging Face
-client = InferenceClient(model=model_id, token=token)
+print("Iniciando carregamento do modelo...")
+
+# Carrega o tokenizador do Hugging Face
+tokenizer = AutoTokenizer.from_pretrained(model_id, token=token)
+
+# Carrega o modelo com suporte a CPU e baixo consumo de RAM
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    token=token,
+    torch_dtype=torch.float16,
+    low_cpu_mem_usage=True,
+    device_map="auto",
+)
 
 
 class MessageRequest(BaseModel):
@@ -30,20 +42,23 @@ class MessageRequest(BaseModel):
 
 @app.post("/chat")
 def chat_stream(request: MessageRequest):
+    inputs = tokenizer(request.message, return_tensors="pt").to(model.device)
+    streamer = TextIteratorStreamer(tokenizer, skip_special_tokens=True)
+
+    kwargs = dict(**inputs, streamer=streamer, max_new_tokens=256, do_sample=True)
+    thread = Thread(target=model.generate, kwargs=kwargs)
+    thread.start()
+
     def generate_tokens():
         try:
-            # Faz streaming de texto direto do Hugging Face
-            for chunk in client.text_generation(
-                request.message, stream=True, max_new_tokens=256
-            ):
-                yield chunk
+            for token_text in streamer:
+                yield token_text
         except Exception as e:
-            yield f"\n[Erro na geração: {str(e)}]"
+            yield f"\n[Erro: {str(e)}]"
 
     return StreamingResponse(generate_tokens(), media_type="text/plain")
 
 
 @app.get("/")
 def home():
-    return {"status": "API online e conectada ao Render!"}
-
+    return {"status": "Monsei IA API Online", "model": model_id}
