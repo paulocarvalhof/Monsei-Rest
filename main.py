@@ -18,7 +18,7 @@ app.add_middleware(
 
 # Carrega token e ID do seu modelo privado
 token = os.environ.get("HF_TOKEN")
-model_id = "seu-usuario/nome-do-modelo-privado"  # Subtitua pelo seu repositório no HF
+model_id = "MidNurdos/Monsei-Atchk"  # Subtitua pelo seu repositório no HF
 
 # Cliente oficial de inferência em nuvem do Hugging Face
 client = InferenceClient(model=model_id, token=token)
